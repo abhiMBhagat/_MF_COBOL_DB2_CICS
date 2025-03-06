@@ -1,0 +1,490 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B28PGM2.                                                  000
+       AUTHOR. ABHIBHAGAT.
+       DATA DIVISION.                                                        000
+       WORKING-STORAGE SECTION.                                              000
+       COPY B28MPS2.                                                         000
+       COPY DFHAID.                                                          200
+       COPY NETTAB.
+       COPY TSCDT.
+       01 WS-MONO PIC 9(10).
+       01 WS-NET PIC X(07).                                                  400
+       01 WS-COMMAREA.                                                       500
+          05 WS-MODE PIC X(04) VALUE 'DB2'.                             00042600
+          05 WS-SCR-NO PIC 9 VALUE 1.                                        600
+          05 WS-NETWK PIC A(08).                                             600
+          05 WS-MOB PIC 9(10).                                               300
+          05 WS-TRN-ID PIC 9(05).
+          05 WS-NETPLO PIC A(08).
+          05 WS-AMTI PIC 9(03).
+       01 WS-MESSAGE PIC X(40) VALUE 'YOUR SESSION ENDED'.                   700
+       01 WS-NETWKL PIC 9(04).
+       01 WS-MOBNOL PIC 9(04).
+       01 WS-AMTL PIC 9(04).
+       01 WS-RESP  PIC S9(08) COMP.
+       01 WS-NETTAB-LEN PIC S9(04) COMP VALUE 160.
+       01 WS-COUNT PIC 9(05) VALUE 1.
+       01 WS-DATE PIC X(10).
+       01 WS-MAIL-CNT PIC 9(01).
+       01 WS-MAILI PIC X(30).
+       01 WS-SQLCODE PIC -9(3).
+            EXEC SQL
+                 INCLUDE NETDCL
+            END-EXEC.
+            EXEC SQL
+                 INCLUDE SQLCA
+            END-EXEC.
+       LINKAGE SECTION.                                                      000
+       01 DFHCOMMAREA.
+          05 LN-SCR-NO PIC 9.
+          05 LN-NETWK PIC A(08).
+          05 LN-MOBNO PIC 9(10).
+          05 LN-TRN-ID PIC 9(05).
+          05 LN-NETPLO PIC A(08).
+          05 LN-AMTI PIC 9(03).
+          05 LN-MAIL-CNT PIC 9(01).
+          05 LN-MAILI PIC X(30).
+       PROCEDURE DIVISION.                                                   000
+              MOVE LOW-VALUES TO CCRDTO.
+              MOVE LOW-VALUES TO PMTPGO.
+              MOVE LOW-VALUES TO NETWPO.                                     000
+              MOVE LOW-VALUES TO SUMMRYO.
+              MOVE LOW-VALUES TO MOBNOO.                                     000
+              MOVE LOW-VALUES TO NETWKO.                                     000
+              EVALUATE EIBCALEN                                              100
+                  WHEN 0                                                     200
+                      PERFORM 1000-READ-MOBNET-MAP-PARA
+                      PERFORM 1100-SEND-MOBNET-MAP-PARA                      300
+                  WHEN OTHER                                                 500
+                      MOVE DFHCOMMAREA TO WS-COMMAREA                        700
+                      EVALUATE WS-SCR-NO                                     800
+                          WHEN 1
+                              PERFORM 1000-READ-MOBNET-MAP-PARA
+                              PERFORM 1200-CHECK-MOBNET-KEY-PARA
+                              PERFORM 5000-SEND-MAP-PARA                     300
+                          WHEN 2
+                              PERFORM 2000-READ-AMT-MAP-PARA
+                              PERFORM 2100-CHECK-AMT-KEY-PARA
+                              PERFORM 5000-SEND-MAP-PARA
+                          WHEN 3
+                              PERFORM 3000-FIL2-BROWSE-PARA
+                              PERFORM 3100-NEXT-READ-PARA
+                              PERFORM 3200-END-BROWSE-PARA
+                              PERFORM 3200-CHECK-PAYMT-KEY-PARA
+                              PERFORM 5000-SEND-MAP-PARA
+                          WHEN 4
+                              PERFORM 4000-CHECK-SUMM-KEY-PARA
+                              PERFORM 4100-SUMM-PAGE-PARA
+                              PERFORM 5000-SEND-MAP-PARA
+                      END-EVALUATE
+              END-EVALUATE.                                                  000
+              PERFORM 6000-TEMP-END-PARA.                                    000
+       5000-SEND-MAP-PARA.
+              EVALUATE WS-SCR-NO                                             800
+                  WHEN 1
+                      PERFORM 1100-SEND-MOBNET-MAP-PARA
+                  WHEN 2
+                      PERFORM 2000-READ-AMT-MAP-PARA
+                      PERFORM 2200-SEND-AMT-MAP-PARA
+                  WHEN 3
+                      PERFORM 3300-SEND-PAYMT-MAP-PARA
+                  WHEN 4
+                      MOVE LOW-VALUES TO SUMMRYO
+                      PERFORM 4100-SUMM-PAGE-PARA
+                      PERFORM 4200-SEND-SUMM-MAP-PARA
+              END-EVALUATE.
+       0001-READ-FIL1-PARA.
+                EXEC CICS
+                     READ
+                     FILE('B28FIL1')
+                     RIDFLD(NETWORK-ID)
+                     INTO(NETWORK-PLAN-TABLE)
+                     RESP(WS-RESP)
+                END-EXEC.
+       0002-READ-TABLE-PARA.
+            MOVE NETWORK-ID TO HV-NETWID.
+            EXEC SQL
+              SELECT PLANNAME1,PLANAMT1,VALIDITY1,
+                     PLANNAME2,PLANAMT2,VALIDITY2,PLANNAME3,PLANAMT3,
+                     VALIDITY3
+              INTO :HV-PLANNAME1,:HV-PLANAMT1,
+                   :HV-VALIDITY1,:HV-PLANNAME2,:HV-PLANAMT2,
+                   :HV-VALIDITY2,:HV-PLANNAME3,:HV-PLANAMT3,
+                   :HV-VALIDITY3
+              FROM NETTAB WHERE NETWID = :HV-NETWID
+            END-EXEC.
+              EVALUATE SQLCODE
+                  WHEN 0
+                       IF WS-MODE = 'DB2' THEN
+                           PERFORM 2011-NETTAB-TO-SCREEN-PARA
+                       ELSE
+                           PERFORM 2012-FETCH-NET-PARA
+                       END-IF
+                  WHEN OTHER
+                       MOVE SQLCODE TO WS-SQLCODE
+                       DISPLAY 'ERROR IN REC'
+              END-EVALUATE.
+       2011-NETTAB-TO-SCREEN-PARA.
+      *(TABLE-TO-MAP)
+              MOVE HV-PLANNAME1 TO PLAN1O.
+              MOVE HV-PLANAMT1 TO AMT1O.
+              MOVE HV-VALIDITY1 TO VAL1O.
+              MOVE HV-PLANNAME2 TO PLAN2O.
+              MOVE HV-PLANAMT2 TO AMT2O.
+              MOVE HV-VALIDITY2 TO VAL2O.
+              MOVE HV-PLANNAME3 TO PLAN3O.
+              MOVE HV-PLANAMT3 TO AMT3O.
+              MOVE HV-VALIDITY3 TO VAL3O.
+       1000-READ-MOBNET-MAP-PARA.
+                MOVE 000000000011111 TO NETWORK-ID
+                PERFORM 0001-READ-FIL1-PARA
+                MOVE NETWORK-NAME TO NET1O
+                MOVE 000000000011112 TO NETWORK-ID
+                PERFORM 0001-READ-FIL1-PARA
+                MOVE NETWORK-NAME TO NET2O
+                MOVE 000000000011113 TO NETWORK-ID
+                PERFORM 0001-READ-FIL1-PARA
+                MOVE NETWORK-NAME TO NET3O
+                MOVE 000000000011114 TO NETWORK-ID
+                PERFORM 0001-READ-FIL1-PARA
+                MOVE NETWORK-NAME TO NET4O
+                EVALUATE TRUE
+                     WHEN WS-RESP = DFHRESP(NORMAL)
+                          MOVE '!!! WELCOME !!!' TO MSG1O
+                     WHEN WS-RESP = DFHRESP(NOTFND)
+                          MOVE 'NOT FOUND' TO MSG1O
+                     WHEN WS-RESP = DFHRESP(LENGERR)
+                          MOVE 'LENGTH ERROR' TO MSG1O
+                     WHEN WS-RESP =  DFHRESP(NOTOPEN)
+                          MOVE 'FILE NOT OPENED' TO MSG1O
+                     WHEN OTHER
+                          MOVE WS-RESP TO MSG1O
+                END-EVALUATE.
+       2000-READ-AMT-MAP-PARA.
+                PERFORM 2010-NETWORK-SELECTION-PARA.
+                IF WS-MODE = 'DB2' THEN
+                    PERFORM 2011-NETTAB-TO-SCREEN-PARA
+                ELSE
+                    PERFORM 2012-FETCH-NET-PARA
+                END-IF.
+       2010-NETWORK-SELECTION-PARA.
+                MOVE WS-NETWK TO NETPLO.
+                EVALUATE TRUE
+                     WHEN NETPLO = 'AIRTEL'
+                          MOVE 000000000011111 TO NETWORK-ID
+                     WHEN NETPLO = 'BSNL'
+                          MOVE 000000000011112 TO NETWORK-ID
+                     WHEN NETPLO = 'HUTCH'
+                          MOVE 000000000011113 TO NETWORK-ID
+                     WHEN NETPLO = 'IDEA'
+                          MOVE 000000000011114 TO NETWORK-ID
+                     WHEN OTHER
+                          MOVE 'NO PLANS' TO NETPLO
+                END-EVALUATE.
+                IF WS-MODE = 'DB2' THEN
+                    PERFORM 0002-READ-TABLE-PARA
+                ELSE
+                    PERFORM 0001-READ-FIL1-PARA
+                END-IF.
+       2012-FETCH-NET-PARA.
+                MOVE PLAN-NAME1 TO PLAN1O.
+                MOVE PLAN-NAME2 TO PLAN2O.
+                MOVE PLAN-NAME3 TO PLAN3O.
+                MOVE PLAN-AMT1 TO AMT1O.
+                MOVE PLAN-AMT2 TO AMT2O.
+                MOVE PLAN-AMT3 TO AMT3O.
+                MOVE VALIDITY1 TO VAL1O.
+                MOVE VALIDITY2 TO VAL2O.
+                MOVE VALIDITY3 TO VAL3O.
+       3000-FIL2-BROWSE-PARA.
+                MOVE LOW-VALUES TO TSCDT.
+                EXEC CICS
+                     STARTBR
+                     FILE('B28FIL2')
+                     RIDFLD(TRANSACTION-ID)
+                END-EXEC.
+        3100-NEXT-READ-PARA.
+                EXEC CICS
+                     READNEXT
+                     FILE('B28FIL2')
+                     INTO(TSCDT)
+                     RIDFLD(TRANSACTION-ID)
+                END-EXEC.
+                ADD 5 TO TRANSACTION-ID.
+       3200-END-BROWSE-PARA.
+                EXEC CICS
+                     ENDBR
+                     FILE('B28FIL2')
+                END-EXEC.
+       3321-INTAKE-PAYMT-PARA.
+              PERFORM 2010-NETWORK-SELECTION-PARA.
+              MOVE CUNMI TO CUST-NAME.
+              MOVE MONOI TO MOBILE-NUMBER.
+              MOVE MAILI TO MAIL-ID.
+           EVALUATE TRUE
+               WHEN WS-AMTI =  100
+                    MOVE PLAN-NAME1 TO PNAME
+                    MOVE PLAN-AMT1 TO PAMT
+                    MOVE VALIDITY1 TO PVAL
+               WHEN WS-AMTI = '200'
+                    MOVE PLAN-NAME2 TO PNAME
+                    MOVE PLAN-AMT2 TO PAMT
+                    MOVE VALIDITY2 TO PVAL
+               WHEN WS-AMTI = '300'
+                    MOVE PLAN-NAME3 TO PNAME
+                    MOVE PLAN-AMT3 TO PAMT
+                    MOVE VALIDITY3 TO PVAL
+               WHEN OTHER
+                    MOVE 'NIL' TO PNAME
+           END-EVALUATE.
+              MOVE CADEI TO CRED-DET.
+              MOVE DTD2O TO DATE-DTD2.
+       3322-WRITE-PAYMT-PARA.
+                EXEC CICS
+                     WRITE
+                     FILE('B28FIL2')
+                     RIDFLD(TRANSACTION-ID)
+                     FROM(TSCDT)
+                     RESP(WS-RESP)
+                END-EXEC
+                EVALUATE TRUE
+                     WHEN WS-RESP = DFHRESP(NORMAL)
+                          MOVE 'GENERATING REPORT PRESS PF1' TO MSGCDO
+                          MOVE 4 TO WS-SCR-NO
+                     WHEN WS-RESP = DFHRESP(DUPREC)
+                          ADD 1 TO TRANSACTION-ID
+                          MOVE TRANSACTION-ID TO WS-TRN-ID
+                          GO TO 3322-WRITE-PAYMT-PARA
+                     WHEN WS-RESP = DFHRESP(NOSPACE)
+                          MOVE 'NO SPACE ' TO MSGCDO
+                     WHEN WS-RESP = DFHRESP(LENGERR)
+                          MOVE 'LENGTH ERROR' TO MSGCDO
+                     WHEN WS-RESP =  DFHRESP(NOTOPEN)
+                          MOVE 'FILE NOT OPENED' TO MSGCDO
+                     WHEN OTHER
+                          MOVE WS-RESP TO MSGCDO
+                END-EVALUATE.
+       1200-CHECK-MOBNET-KEY-PARA.                                           000
+             EVALUATE EIBAID                                                 000
+                WHEN DFHPF2                                                  000
+                           PERFORM 1210-RECEIVE-MOBNET-MAP-PARA              000
+                           PERFORM 1220-VALIDATION-MOBNET-PARA
+                WHEN DFHPF3                                                  000
+                           PERFORM 0005-SEND-MESSAGE-PARA                    100
+                           PERFORM 0003-PERM-END-PARA                        000
+                WHEN DFHPF12                                                 000
+                           MOVE LOW-VALUES TO MOBNOO                         100
+                           MOVE LOW-VALUES TO NETWKO                         100
+                WHEN OTHER                                                   000
+                       MOVE 'INCORRECT PFKEY PRESSED' TO MSG1O
+             END-EVALUATE.                                                   000
+       2100-CHECK-AMT-KEY-PARA.                                              000
+             MOVE LN-NETWK TO MSGAMO
+             EVALUATE EIBAID                                                 000
+                 WHEN DFHPF2                                                 000
+                     MOVE 'YOUR NETWORK PLANS ARE FETCHED' TO MSGAMO
+                 WHEN DFHENTER                                               000
+                     PERFORM 2110-RECEIVE-AMT-MAP-PARA                       000
+                     PERFORM 2120-VALIDATION-AMT-PARA
+                 WHEN DFHPF3                                                 000
+                     MOVE 1 TO WS-SCR-NO                                     100
+                     PERFORM 1000-READ-MOBNET-MAP-PARA
+                     PERFORM 5000-SEND-MAP-PARA                              000
+                 WHEN DFHPF12                                                000
+                     MOVE LOW-VALUES TO NETWPO                               100
+                 WHEN OTHER                                                  000
+                     MOVE 'INCORRECT PFKEY PRESSED' TO MSGAMO
+             END-EVALUATE.                                                   000
+       3200-CHECK-PAYMT-KEY-PARA.                                            000
+             EVALUATE EIBAID                                                 000
+                 WHEN DFHPF1                                                 000
+                     PERFORM 3210-RECEIVE-PAYMT-MAP-PARA                     000
+                     PERFORM 3220-VALIDATION-PAYMT-PARA
+                 WHEN DFHPF3                                                 000
+                     MOVE 2 TO WS-SCR-NO                                     100
+                     PERFORM 5000-SEND-MAP-PARA                              000
+                 WHEN DFHPF12                                                000
+                     MOVE LOW-VALUES TO PMTPGO                               100
+                 WHEN OTHER                                                  000
+                       MOVE 'INCORRECT PFKEY PRESSED' TO MSGCDO
+             END-EVALUATE.                                                   000
+       4000-CHECK-SUMM-KEY-PARA.                                             000
+             EVALUATE EIBAID                                                 000
+                 WHEN DFHPF12                                                000
+                     PERFORM 0005-SEND-MESSAGE-PARA                          100
+                     PERFORM 0003-PERM-END-PARA                              000
+                 WHEN OTHER
+                     MOVE 'PRESS PF12 TO EXIT' TO MSGSUO
+             END-EVALUATE.                                                   000
+       1220-VALIDATION-MOBNET-PARA.                                          000
+             EVALUATE TRUE
+                 WHEN (MOBNOI = SPACES OR MOBNOL = 0 )
+                     MOVE 'ALL THE FIELDS ARE MANDATORY  ' TO MSG1O          000
+
+                     MOVE -1 TO MOBNOL
+                 WHEN (NETWKI = SPACES OR NETWKL = 0 )
+                     MOVE 'ALL THE FIELDS ARE MANDATORY  ' TO MSG1O          000
+                 WHEN (MOBNOI < 1000000000 OR MOBNOI > 9999999999)
+                     MOVE 'YOUR MOBILE NO. IS INVALID'  TO MSG1O             000
+                 WHEN OTHER
+                     MOVE 'PRESS PF2 KEY TO VIEW PLANS' TO MSG1O
+                     PERFORM 1221-CHECK-VALID-USER-PARA
+             END-EVALUATE.                                                   000
+       1221-CHECK-VALID-USER-PARA.
+             IF NETWKI = 'IDEA' OR 'AIRTEL' OR 'HUTCH' OR 'BSNL' THEN
+                 MOVE NETWKI TO WS-NETWK
+                 MOVE 2 TO WS-SCR-NO                                         000
+             ELSE
+                 MOVE 'INCORRECT NETWORK NAME' TO MSG1O
+             END-IF.
+       2120-VALIDATION-AMT-PARA.
+             IF ( AMTI = SPACES OR AMTL = 0 )
+                MOVE 'AMOUNT FIELD CANNOT BE BLANK' TO MSGAMO
+             ELSE
+                CONTINUE
+             END-IF
+             IF AMTI = '100' OR '200' OR '300' THEN
+                MOVE 'PRESS ENTER TO PROCEED' TO MSGAMO
+                MOVE AMTI TO WS-AMTI
+                MOVE 3 TO WS-SCR-NO                                          000
+             ELSE
+                MOVE 'INCORRECT AMOUNT' TO MSGAMO
+             END-IF.
+      *----------PARA to Validate fields on Screen-2-----------------*
+       3220-VALIDATION-PAYMT-PARA.
+             MOVE MONOL TO WS-MONO.
+             MOVE MAILI TO WS-MAILI.
+             INSPECT WS-MAILI TALLYING WS-MAIL-CNT
+                  FOR  ALL "@" BEFORE ".COM".
+             MOVE WS-MAILI TO MAILI.
+             EVALUATE TRUE
+              WHEN (CUNMI = SPACES OR MAILI = SPACES OR CADEI = SPACES)
+                     MOVE 'ALL THE FIELDS ARE MANDATORY' TO MSGCDO           000
+              WHEN (MONOL = 0 OR MONOI = SPACES)
+                     MOVE 'ALL THE FIELDS ARE MANDATORY' TO MSGCDO           000
+              WHEN (MONOI < 1000000000 OR MONOI > 9999999999)
+                     MOVE 'YOUR MOBILE NO. IS INVALID' TO MSGCDO             000
+              WHEN (CADEI < 100000000000000 OR CADEI > 999999999999999)
+                     MOVE 'YOUR CARD DETAILS ARE IMPROPER' TO MSGCDO         000
+              WHEN (WS-MAIL-CNT = 0)
+                     MOVE WS-MAIL-CNT TO MSGCDO
+                     MOVE 'EMAIL-ID CONTAINS INVALID FORMAT' TO MSGCDO       000
+              WHEN OTHER
+                     PERFORM 3321-INTAKE-PAYMT-PARA
+                     PERFORM 3322-WRITE-PAYMT-PARA
+             END-EVALUATE
+             MOVE 0 TO WS-MAIL-CNT.
+       1100-SEND-MOBNET-MAP-PARA.                                            100
+                PERFORM 1110-DATE-MOBNET-PARA.
+                EXEC CICS                                                    000
+                     SEND MAP('CCRDT')                                       000
+                          MAPSET('B28MPS2')                                  000
+                          ERASE
+                END-EXEC.                                                    000
+       2200-SEND-AMT-MAP-PARA.                                               100
+                PERFORM 2210-DATE-AMT-PARA.
+                EXEC CICS                                                    000
+                     SEND MAP('NETWP')                                       000
+                          MAPSET('B28MPS2')                                  000
+                          ERASE
+                END-EXEC.                                                    000
+       3300-SEND-PAYMT-MAP-PARA.                                             100
+                PERFORM 3310-DATE-PAYMT-PARA.
+                EXEC CICS                                                  48000
+                     SEND MAP('PMTPG')                                     49000
+                          MAPSET('B28MPS2')                                50000
+                          ERASE
+                END-EXEC.                                                  60000
+       4200-SEND-SUMM-MAP-PARA.                                            47100
+                PERFORM 4210-DATE-SUMM-PARA.
+                EXEC CICS                                                  48000
+                     SEND MAP('SUMMRY')                                    49000
+                          MAPSET('B28MPS2')                                50000
+                          ERASE
+                END-EXEC.                                                    000
+       1110-DATE-MOBNET-PARA.
+                EXEC CICS
+                     ASKTIME
+                     ABSTIME(WS-DATE)
+                END-EXEC.                                                    000
+                EXEC CICS
+                     FORMATTIME
+                     MMDDYYYY(DTDO)
+                     ABSTIME(WS-DATE)
+                     DATESEP('/')
+                END-EXEC.                                                    000
+       2210-DATE-AMT-PARA.
+                EXEC CICS
+                     ASKTIME
+                     ABSTIME(WS-DATE)
+                END-EXEC.                                               00060000
+                EXEC CICS
+                     FORMATTIME
+                     MMDDYYYY(DTD1O)
+                     ABSTIME(WS-DATE)
+                     DATESEP('/')
+                END-EXEC.                                               00060000
+       3310-DATE-PAYMT-PARA.
+                EXEC CICS
+                     ASKTIME
+                     ABSTIME(WS-DATE)
+                END-EXEC.                                               00060000
+                EXEC CICS
+                     FORMATTIME
+                     MMDDYYYY(DTD2O)
+                     ABSTIME(WS-DATE)
+                     DATESEP('/')
+                END-EXEC.                                               00060000
+       4210-DATE-SUMM-PARA.
+                EXEC CICS
+                     ASKTIME
+                     ABSTIME(WS-DATE)
+                END-EXEC.                                               00060000
+                EXEC CICS
+                     FORMATTIME
+                     MMDDYYYY(DTD3O)
+                     ABSTIME(WS-DATE)
+                     DATESEP('/')
+                END-EXEC.
+       1210-RECEIVE-MOBNET-MAP-PARA.
+                EXEC CICS
+                     RECEIVE MAP('CCRDT')
+                             MAPSET('B28MPS2')
+                END-EXEC.
+       2110-RECEIVE-AMT-MAP-PARA.
+                EXEC CICS
+                     RECEIVE MAP('NETWP')
+                             MAPSET('B28MPS2')
+                END-EXEC.
+       3210-RECEIVE-PAYMT-MAP-PARA.
+                EXEC CICS
+                     RECEIVE MAP('PMTPG')
+                             MAPSET('B28MPS2')
+                END-EXEC.
+       4210-RECEIVE-SUMM-MAP-PARA.
+                EXEC CICS
+                     RECEIVE MAP('SUMMRY')
+                          MAPSET('B28MPS2')
+                END-EXEC.
+       0003-PERM-END-PARA.
+                EXEC CICS
+                     RETURN
+                END-EXEC.
+       6000-TEMP-END-PARA.
+                EXEC CICS
+                     RETURN TRANSID('B282')
+                     COMMAREA(WS-COMMAREA)
+                END-EXEC.
+       4100-SUMM-PAGE-PARA.
+                MOVE WS-TRN-ID TO TRNIDO.
+                MOVE CUST-NAME TO CNAMO.
+                MOVE MOBILE-NUMBER TO MOBNMO.
+                MOVE PNAME TO PLDETO.
+                MOVE MAIL-ID TO MLIDO.
+       0005-SEND-MESSAGE-PARA.                                             60000
+              EXEC CICS                                                    70000
+                 SEND TEXT                                                 80000
+                      FROM(WS-MESSAGE)                                     90000
+                 ERASE                                                     00000
+              END-EXEC.
+
